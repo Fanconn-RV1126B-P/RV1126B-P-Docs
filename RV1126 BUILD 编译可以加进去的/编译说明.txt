@@ -1,0 +1,19 @@
+
+## 摄像头颜色发绿，拖影等问题，可以替换如下文件
+
+```bash
+imx415_CMK-OT1948-PV1_styleDahP0_test.json
+/etc/iqfiles/imx415_default_default.json
+
+imx307_CMK-OT0837-PT2_YT-2929_UNV-40IRC-2M-F20_test.json
+/etc/iqfiles/imx307_default_default.json
+```
+
+
+## 提高帧率用这个驱动
+
+IMX307
+
+```bash
+imx307.c
+```
