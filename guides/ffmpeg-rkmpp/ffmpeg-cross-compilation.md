@@ -91,6 +91,7 @@ The script will:
 | `STAGING` | Sysroot with headers/libs | `$TOOLCHAIN/aarch64-buildroot-linux-gnu/sysroot` |
 | `CROSS_PREFIX` | Compiler prefix | `aarch64-buildroot-linux-gnu-` |
 | `PKG_CONFIG_*` | Library discovery | Points to sysroot packages |
+| `PKG_CONFIG` | pkg-config binary | Full path to pkg-config tool |
 | `FFMPEG_PREFIX` | Install destination | `./install` (in ffmpeg-rockchip) |
 
 ---
@@ -160,7 +161,7 @@ cd $FFMPEG_SRC
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
-  --pkg-config=pkg-config \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-nonfree \
@@ -179,6 +180,7 @@ cd $FFMPEG_SRC
 **Why each option:**
 
 - `--prefix=$FFMPEG_PREFIX` - Where `make install` will place binaries
+- `--pkg-config=$PKG_CONFIG` - Explicit path to pkg-config (required for cross-compilation)
 - `--enable-gpl/version3/nonfree` - Licensing (required for some features)
 - `--enable-libdrm` - Direct Rendering Manager support (required for MPP/RGA)
 - `--enable-rkmpp` - Rockchip MPP hardware codecs
@@ -204,7 +206,7 @@ cd $FFMPEG_SRC
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
-  --pkg-config=pkg-config \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-nonfree \
@@ -246,7 +248,7 @@ cd $FFMPEG_SRC
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
-  --pkg-config=pkg-config \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-nonfree \
@@ -291,6 +293,7 @@ cd $FFMPEG_SRC
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-libdrm \
@@ -1068,6 +1071,7 @@ make install
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-libdrm \
@@ -1092,6 +1096,7 @@ make install
   --arch=aarch64 \
   --target-os=linux \
   --sysroot=$STAGING \
+  --pkg-config=$PKG_CONFIG \
   --enable-gpl \
   --enable-version3 \
   --enable-libdrm \
