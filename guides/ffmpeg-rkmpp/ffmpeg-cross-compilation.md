@@ -34,91 +34,117 @@ Before starting, ensure you have:
 
 ## 🛠️ Environment Setup
 
-### Step 1: Set SDK Paths
+### Understanding the Cross-Compilation Environment
 
-Create a setup script for convenience:
+Cross-compilation requires several key components working together:
 
-```bash
-#!/bin/bash
-# File: ~/ffmpeg-cross-env.sh
+1. **Toolchain** - The cross-compiler (e.g., `aarch64-buildroot-linux-gnu-gcc`) that runs on your development machine (x86_64) but generates code for the target (ARM64)
 
-# SDK root
-export SDK_ROOT=/home/csvke/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0
+2. **Sysroot** - A directory structure containing the target system's headers and libraries. This is where the compiler looks for dependencies like MPP and RGA during compilation.
 
-# Buildroot output
-export BUILDROOT_OUTPUT=$SDK_ROOT/buildroot/output/rockchip_rv1126b
+3. **pkg-config** - A helper tool that tells the compiler where to find library headers and how to link against them. We configure it to search in the sysroot instead of the host system.
 
-# Staging directory (sysroot) for cross-compilation
-export STAGING=$BUILDROOT_OUTPUT/host/aarch64-buildroot-linux-gnu/sysroot
+4. **Environment Variables** - These tell the build system (FFmpeg's configure script) how to find and use all these components.
 
-# Toolchain directory
-export TOOLCHAIN=$BUILDROOT_OUTPUT/host
+### Step 1: Use the Automated Setup Script
 
-# Add toolchain to PATH
-export PATH=$TOOLCHAIN/bin:$PATH
+The FFmpeg-Rockchip repository includes an automated environment setup script that detects your SDK location and configures everything correctly.
 
-# Cross-compiler prefix
-export CROSS_PREFIX=aarch64-buildroot-linux-gnu-
+**Expected Directory Structure:**
 
-# pkg-config setup for finding libraries
-export PKG_CONFIG_PATH=$STAGING/usr/lib/pkgconfig
-export PKG_CONFIG_SYSROOT_DIR=$STAGING
-export PKG_CONFIG_LIBDIR=$STAGING/usr/lib/pkgconfig
-
-# FFmpeg source
-export FFMPEG_SRC=/home/csvke/RV1126B-P/ffmpeg-rockchip
-
-# Installation prefix (where to install FFmpeg)
-export FFMPEG_PREFIX=$HOME/ffmpeg-rv1126b-install
-
-echo "✅ Environment configured for RV1126B-P cross-compilation"
-echo "   Toolchain: $TOOLCHAIN/bin"
-echo "   Sysroot:   $STAGING"
-echo "   FFmpeg:    $FFMPEG_SRC"
-echo "   Install:   $FFMPEG_PREFIX"
+```
+parent/
+├── ffmpeg-rockchip/              # This repository
+│   └── ffmpeg-rockchip-cross-compile-env.sh
+└── RV1126B-P-SDK/
+    └── rv1126b_linux6.1_sdk_v1.1.0/
+        └── buildroot/
+            └── output/
+                └── rockchip_rv1126b/
+                    ├── host/              # Toolchain
+                    │   └── aarch64-buildroot-linux-gnu/
+                    │       └── sysroot/   # Headers and libraries
+                    └── target/            # Device rootfs
 ```
 
 **Load the environment:**
 
 ```bash
-source ~/ffmpeg-cross-env.sh
+cd ffmpeg-rockchip
+source ./ffmpeg-rockchip-cross-compile-env.sh
 ```
+
+The script will:
+- ✅ Auto-detect the SDK location (assumes it's a sibling directory)
+- ✅ Verify the toolchain exists and is functional
+- ✅ Check for MPP v1.0.11 libraries and headers
+- ✅ Check for RGA v2.1.0 libraries and headers
+- ✅ Configure pkg-config for cross-compilation
+- ✅ Set all required environment variables
+
+**What the script configures:**
+
+| Variable | Purpose | Example Value |
+|----------|---------|---------------|
+| `SDK_ROOT` | SDK root directory | `../RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0` |
+| `TOOLCHAIN` | Cross-compiler location | `$SDK_ROOT/buildroot/output/.../host` |
+| `STAGING` | Sysroot with headers/libs | `$TOOLCHAIN/aarch64-buildroot-linux-gnu/sysroot` |
+| `CROSS_PREFIX` | Compiler prefix | `aarch64-buildroot-linux-gnu-` |
+| `PKG_CONFIG_*` | Library discovery | Points to sysroot packages |
+| `FFMPEG_PREFIX` | Install destination | `./install` (in ffmpeg-rockchip) |
 
 ---
 
 ### Step 2: Verify Environment
 
+After sourcing the setup script, verify everything is configured correctly:
+
 ```bash
-# Check toolchain
+# Check toolchain is in PATH
 which ${CROSS_PREFIX}gcc
-# Expected: /home/csvke/RV1126B-P/RV1126B-P-SDK/.../host/bin/aarch64-buildroot-linux-gnu-gcc
+# Should output: .../host/bin/aarch64-buildroot-linux-gnu-gcc
 
 # Check GCC version
 ${CROSS_PREFIX}gcc --version
-# Expected: aarch64-buildroot-linux-gnu-gcc (Buildroot ...) 11.x or 12.x
+# Should show: aarch64-buildroot-linux-gnu-gcc (Buildroot ...) 11.x or 12.x
 
-# Verify MPP
-pkg-config --exists rockchip_mpp && echo "✅ MPP found" || echo "❌ MPP not found"
+# Verify MPP (should show version 1.0.11)
 pkg-config --modversion rockchip_mpp
-# Expected: 1.0.11
 
-# Verify RGA
-pkg-config --exists librga && echo "✅ RGA found" || echo "❌ RGA not found"
+# Verify RGA (should show version 2.1.0)
 pkg-config --modversion librga
-# Expected: 2.1.0
 
-# Check sysroot
+# Check sysroot libraries exist
 ls $STAGING/usr/lib/librockchip_mpp.so
 ls $STAGING/usr/lib/librga.so
+
+# Check headers exist
 ls $STAGING/usr/include/rockchip/rk_mpi.h
 ls $STAGING/usr/include/rga/im2d.h
 ```
 
-**All checks should pass!** If any fail, review [MPP Status](./mpp-version-and-status.md) or [RGA Status](./rga-version-and-status.md).
+**Why these checks matter:**
+
+- **Toolchain check** - Ensures the cross-compiler is accessible
+- **pkg-config checks** - Confirms FFmpeg's configure script can find MPP and RGA
+- **Library checks** - Verifies the linker can find runtime dependencies
+- **Header checks** - Ensures the compiler can find API definitions
+
+If the automated script passed all checks, these manual verifications should all succeed.
 
 ---
 
 ## 🔧 FFmpeg Configuration
+
+### Understanding Configure Options
+
+FFmpeg's `./configure` script generates build files based on your requirements. For cross-compilation, we need to tell it:
+
+1. **Target Architecture** - `--arch=aarch64` (ARM 64-bit)
+2. **Cross-Compilation Mode** - `--enable-cross-compile` (don't try to run target binaries on host)
+3. **Toolchain** - `--cross-prefix=` (prefix for gcc, ld, ar, etc.)
+4. **Sysroot** - `--sysroot=` (where to find target headers/libraries)
+5. **Hardware Acceleration** - `--enable-rkmpp --enable-rkrga` (Rockchip features)
 
 ### Minimal Configuration (Hardware Codecs Only)
 
@@ -149,6 +175,16 @@ cd $FFMPEG_SRC
   --disable-podpages \
   --disable-txtpages
 ```
+
+**Why each option:**
+
+- `--prefix=$FFMPEG_PREFIX` - Where `make install` will place binaries
+- `--enable-gpl/version3/nonfree` - Licensing (required for some features)
+- `--enable-libdrm` - Direct Rendering Manager support (required for MPP/RGA)
+- `--enable-rkmpp` - Rockchip MPP hardware codecs
+- `--enable-rkrga` - Rockchip RGA hardware filters
+- `--disable-static` - Build shared libraries only (saves space)
+- `--disable-doc` - Skip documentation generation (faster build)
 
 **Binary size: ~10-15 MB** (stripped)
 
@@ -235,16 +271,19 @@ cd $FFMPEG_SRC
 
 ### Step 1: Configure FFmpeg
 
-Choose one of the configurations above:
+Choose one of the configurations above and run it in the FFmpeg source directory:
 
 ```bash
-# Source environment
-source ~/ffmpeg-cross-env.sh
+# Ensure environment is loaded
+if [ -z "$FFMPEG_ROCKCHIP_ENV_LOADED" ]; then
+    echo "Environment not loaded! Run: source ./ffmpeg-rockchip-cross-compile-env.sh"
+    exit 1
+fi
 
 # Go to FFmpeg source
 cd $FFMPEG_SRC
 
-# Run configure (choose one from above)
+# Run configure (minimal example - adjust as needed)
 ./configure \
   --prefix=$FFMPEG_PREFIX \
   --enable-cross-compile \
@@ -263,7 +302,7 @@ cd $FFMPEG_SRC
 
 **Check configuration output:**
 
-Look for these lines:
+Look for these lines in the configure output:
 ```
 Enabled decoders:
 h264_rkmpp hevc_rkmpp vp8_rkmpp vp9_rkmpp av1_rkmpp
@@ -277,19 +316,39 @@ scale_rkrga vpp_rkrga overlay_rkrga transpose_rkrga
 
 If you see `rkmpp` and `rkrga` components, configuration succeeded! ✅
 
+**If configuration fails:**
+- Ensure the environment script was sourced correctly
+- Check that pkg-config can find MPP and RGA (see Step 2 verification)
+- Review the `ffbuild/config.log` file for detailed error messages
+
 ---
 
 ### Step 2: Compile FFmpeg
 
+Once configuration succeeds, build FFmpeg using all available CPU cores:
+
 ```bash
-# Build with all available CPU cores
+# Build with parallel compilation (much faster)
 make -j$(nproc)
 ```
 
+**What happens during compilation:**
+
+1. **Header Processing** - Compiler reads MPP/RGA headers from `$STAGING/usr/include`
+2. **Source Compilation** - Each `.c` file is compiled to `.o` object files
+3. **Linking** - Object files are linked with MPP/RGA libraries from `$STAGING/usr/lib`
+4. **Library Generation** - Shared libraries (`.so`) are created for libavcodec, libavformat, etc.
+5. **Binary Creation** - Final `ffmpeg` and `ffprobe` executables are generated
+
 **Compilation time:**
 - Fast machine (16+ cores): ~5-10 minutes
-- Medium machine (8 cores): ~10-15 minutes
+- Medium machine (8 cores): ~10-15 minutes  
 - Slow machine (4 cores): ~20-30 minutes
+
+**Progress indicators:**
+- You'll see many `CC` (compile) and `LD` (link) messages scrolling by
+- The percentage completion is typically not shown, but you can estimate progress by watching the output
+- Warnings are normal; errors will stop the build
 
 **If compilation fails**, see [Troubleshooting](#-troubleshooting) section below.
 
@@ -297,27 +356,44 @@ make -j$(nproc)
 
 ### Step 3: Install FFmpeg
 
+After successful compilation, install the binaries and libraries:
+
 ```bash
-# Install to prefix directory
+# Install to the prefix directory specified during configure
 make install
 ```
 
-This creates:
+**What gets installed:**
+
+This creates a complete FFmpeg installation at `$FFMPEG_PREFIX` (default: `./install` in the ffmpeg-rockchip directory):
+
 ```
-$FFMPEG_PREFIX/
+install/
 ├── bin/
-│   ├── ffmpeg          # Main FFmpeg binary
-│   ├── ffprobe         # Media file analyzer
-│   └── ffplay          # Simple media player (if built)
+│   ├── ffmpeg          # Main FFmpeg binary (transcoding, processing)
+│   ├── ffprobe         # Media file analyzer (metadata, streams)
+│   └── ffplay          # Simple media player (if SDL2 was available)
 ├── lib/
-│   ├── libavcodec.so.XX
-│   ├── libavformat.so.XX
-│   ├── libavfilter.so.XX
-│   ├── libavutil.so.XX
-│   └── ...
-└── include/
-    └── libav*/
+│   ├── libavcodec.so.XX      # Codec library (MPP decoders/encoders)
+│   ├── libavformat.so.XX     # Container format handling
+│   ├── libavfilter.so.XX     # Filter library (RGA filters)
+│   ├── libavutil.so.XX       # Utility functions
+│   ├── libswscale.so.XX      # Software scaling (fallback)
+│   ├── libswresample.so.XX   # Audio resampling
+│   └── pkgconfig/            # For applications linking against FFmpeg
+├── include/
+│   └── libav*/               # Development headers (if needed)
+└── share/
+    └── ffmpeg/               # Examples and documentation (if enabled)
 ```
+
+**Library dependencies:**
+
+The installed FFmpeg binaries depend on:
+- **On your host** - Nothing (they won't run on x86_64)
+- **On the device** - `librockchip_mpp.so`, `librga.so`, `libdrm.so`, standard C library
+
+These dependencies should already be in the device rootfs if the SDK was built correctly.
 
 ---
 
@@ -357,108 +433,207 @@ $FFMPEG_PREFIX/bin/ffmpeg -filters | grep rkrga
 
 ## 📦 Packaging for Device
 
-### Option 1: Create Tarball
+### Understanding Deployment Options
+
+Since we cross-compiled FFmpeg on a development machine, we need to transfer it to the target device. There are several approaches:
+
+### Option 1: Create Tarball (Recommended for Testing)
+
+Package the installation into a portable archive:
 
 ```bash
-# Create distributable package
+# Go to the install directory
 cd $FFMPEG_PREFIX
-tar czf ~/ffmpeg-rv1126b-$(date +%Y%m%d).tar.gz bin/ lib/
 
+# Create timestamped tarball
+tar czf ffmpeg-rv1126b-$(date +%Y%m%d).tar.gz bin/ lib/
+
+# The tarball will be in the install directory
 # Size: ~10-20 MB (depending on configuration)
+ls -lh ffmpeg-rv1126b-*.tar.gz
 ```
 
 **Transfer to device:**
 ```bash
-scp ~/ffmpeg-rv1126b-*.tar.gz root@192.168.1.100:/tmp/
+# Replace with your device's IP address
+DEVICE_IP=192.168.1.100
+
+# Copy tarball to device
+scp ffmpeg-rv1126b-*.tar.gz root@$DEVICE_IP:/tmp/
 ```
+
+**Why tarball is good for testing:**
+- ✅ Easy to transfer and extract
+- ✅ Doesn't modify system directories during testing
+- ✅ Can install to user-writable location (`/tmp`, `/home`)
+- ✅ Easy to remove if something goes wrong
 
 ---
 
-### Option 2: Install to Device Root
+### Option 2: Install to Device System Directories
+
+For permanent installation on the device:
 
 ```bash
-# On device, extract to /usr/local
-ssh root@192.168.1.100
+# On device, extract to system location
+ssh root@$DEVICE_IP
 cd /usr/local
 tar xzf /tmp/ffmpeg-rv1126b-*.tar.gz
 
-# Add to PATH
-export PATH=/usr/local/bin:$PATH
+# Add to PATH permanently
 echo 'export PATH=/usr/local/bin:$PATH' >> /etc/profile
 
-# Update library cache
+# Update library cache (so system can find libavcodec.so, etc.)
 ldconfig
+
+# Verify installation
+ffmpeg -version
 ```
+
+**Why install to /usr/local:**
+- System directory `/usr` may be read-only or managed by package system
+- `/usr/local` is the standard location for locally compiled software
+- Won't conflict with any potential system FFmpeg packages
+- Survives reboots (unlike `/tmp`)
+
+**Important:** Ensure `/usr/local` has enough space for the installation (~20-50 MB depending on configuration).
 
 ---
 
-### Option 3: Direct Install (NFS/Shared Filesystem)
+### Option 3: Direct Install via Network Filesystem
 
-If your device mounts a shared filesystem:
+If your device mounts a shared filesystem (NFS, CIFS) from your development machine:
 
 ```bash
-# Configure with device prefix directly
+# Configure FFmpeg to install directly to a shared location
+# (Do this BEFORE running ./configure)
+export FFMPEG_PREFIX=/path/to/nfs/mount/ffmpeg
+
+# Then configure and build as normal
 ./configure \
-  --prefix=/mnt/shared/ffmpeg \
+  --prefix=$FFMPEG_PREFIX \
   ... # other options
 
 make -j$(nproc)
 make install
 
-# On device:
-export PATH=/mnt/shared/ffmpeg/bin:$PATH
-export LD_LIBRARY_PATH=/mnt/shared/ffmpeg/lib:$LD_LIBRARY_PATH
+# On device, add to PATH
+export PATH=/path/to/nfs/mount/ffmpeg/bin:$PATH
+export LD_LIBRARY_PATH=/path/to/nfs/mount/ffmpeg/lib:$LD_LIBRARY_PATH
 ```
+
+**Benefits of network filesystem approach:**
+- ✅ No manual file transfer needed
+- ✅ Can iterate quickly: rebuild on host, run immediately on device
+- ✅ Saves device storage space
+- ⚠️ Requires reliable network connection
+- ⚠️ Performance may be slower than local installation
 
 ---
 
 ## 🧪 Testing on Device
 
-### Step 1: Transfer Test File
+### Step 1: Transfer Test Media
+
+Get a test video file onto the device:
 
 ```bash
-# Copy a test video
-scp test.mp4 root@192.168.1.100:/tmp/
+# From your development machine
+DEVICE_IP=192.168.1.100
+
+# Copy a test video (H.264 recommended for initial testing)
+scp test_video.mp4 root@$DEVICE_IP:/tmp/
 ```
+
+**Test file recommendations:**
+- **Codec:** H.264 or H.265 (HEVC) - supported by MPP hardware
+- **Resolution:** 1080p or 720p
+- **Duration:** 10-30 seconds (for quick tests)
+- **Container:** MP4 or MKV
 
 ---
 
 ### Step 2: Test Hardware Decoder
 
+SSH into the device and test MPP hardware decoding:
+
 ```bash
-# SSH into device
-ssh root@192.168.1.100
+# Connect to device
+ssh root@$DEVICE_IP
 
-# Test H.264 hardware decoding
-ffmpeg -c:v h264_rkmpp -i /tmp/test.mp4 -f null -
+# Test H.264 hardware decoding (output to null sink for benchmarking)
+ffmpeg -c:v h264_rkmpp -i /tmp/test_video.mp4 -f null -
 
-# Expected output:
-# frame=  300 fps=240 q=-0.0 Lsize=N/A time=00:00:10.00
+# Expected output shows frame processing:
+# frame=  300 fps=240 q=-0.0 Lsize=N/A time=00:00:10.00 bitrate=N/A speed=8.0x
 ```
 
-**If FPS > 100**, hardware decoding is working! 🚀
+**What to look for:**
+
+- **`fps=240` or higher** - Indicates hardware decoding is working! 🚀
+- **`speed=8.0x` or higher** - Processing faster than real-time
+- **No error messages** - MPP initialized successfully
+
+**If FPS is low (< 30):**
+- May be using software decoder instead of hardware
+- Check for error messages about MPP initialization
+- Verify `/dev/mpp_service` device exists: `ls -l /dev/mpp_service`
+
+**Understanding the output:**
+- `-f null -` means "decode but don't write output" (pure benchmark)
+- `-c:v h264_rkmpp` explicitly requests MPP hardware decoder
+- Without `-c:v`, FFmpeg would auto-select software decoder
 
 ---
 
 ### Step 3: Test Hardware Encoder
 
+Test MPP hardware encoding by doing a full decode→encode cycle:
+
 ```bash
-# Decode with MPP, encode with MPP
-ffmpeg -c:v h264_rkmpp -i /tmp/test.mp4 \
+# Decode with MPP hardware, encode with MPP hardware
+ffmpeg -c:v h264_rkmpp -i /tmp/test_video.mp4 \
   -c:v h264_rkmpp -b:v 2M \
   /tmp/output.mp4
 
 # Check encoding speed
-# Expected: Real-time or faster for 1080p
+# Expected: Real-time (1.0x speed) or faster for 1080p
+```
+
+**Encoder parameters explained:**
+
+- `-c:v h264_rkmpp` (input) - Use MPP to decode
+- `-c:v h264_rkmpp` (output) - Use MPP to encode  
+- `-b:v 2M` - Target bitrate of 2 Mbps
+- Output file must have proper extension (`.mp4`, `.mkv`, etc.)
+
+**What real-time means:**
+- `speed=1.0x` - Processing at same speed as playback (30fps video → 30fps encode)
+- `speed=2.0x` - 2× faster than real-time (can encode 2 videos simultaneously)
+- `speed=0.5x` - Slower than real-time (may not be suitable for live streaming)
+
+**Encoder quality options:**
+
+```bash
+# Higher quality (larger file, slower)
+-b:v 4M -maxrate 4M -bufsize 8M
+
+# Lower quality (smaller file, faster)
+-b:v 1M -maxrate 1M -bufsize 2M
+
+# Constant quality mode (variable bitrate)
+-qp 25  # (lower = better quality, 20-30 is typical)
 ```
 
 ---
 
-### Step 4: Test RGA Scaling
+### Step 4: Test RGA Hardware Scaling
+
+Test RGA 2D hardware acceleration by scaling video:
 
 ```bash
-# Decode + scale with hardware
-ffmpeg -c:v h264_rkmpp -i /tmp/test.mp4 \
+# Decode with MPP + scale with RGA hardware
+ffmpeg -c:v h264_rkmpp -i /tmp/test_video.mp4 \
   -vf "scale_rkrga=1280:720" \
   -c:v h264_rkmpp -b:v 1M \
   /tmp/scaled.mp4
@@ -466,17 +641,69 @@ ffmpeg -c:v h264_rkmpp -i /tmp/test.mp4 \
 # Expected: Minimal CPU usage, high FPS
 ```
 
----
-
-### Step 5: Monitor CPU Usage
+**RGA filter syntax:**
 
 ```bash
-# In another terminal, watch CPU usage
-ssh root@192.168.1.100
+# Scale to specific resolution
+-vf "scale_rkrga=WIDTH:HEIGHT"
+
+# Scale maintaining aspect ratio
+-vf "scale_rkrga=1280:-1"    # Height calculated automatically
+-vf "scale_rkrga=-1:720"     # Width calculated automatically
+
+# Multiple filters (RGA → software → RGA not efficient)
+-vf "scale_rkrga=1280:720,format=yuv420p"
+```
+
+**Performance comparison:**
+
+Run both software and hardware scaling to see the difference:
+
+```bash
+# Software scaling (CPU-intensive)
+time ffmpeg -i /tmp/test_video.mp4 -vf "scale=1280:720" -f null -
+
+# Hardware scaling (RGA offload)
+time ffmpeg -c:v h264_rkmpp -i /tmp/test_video.mp4 \
+  -vf "scale_rkrga=1280:720" -f null -
+```
+
+You should see **10-50× faster** processing with RGA!
+
+---
+
+### Step 5: Monitor System Resource Usage
+
+While FFmpeg is running, monitor CPU and memory usage to verify hardware acceleration:
+
+```bash
+# In another SSH session to the device
+ssh root@$DEVICE_IP
+
+# Watch CPU usage in real-time
 top -d 1
 
-# While FFmpeg runs, CPU usage should be low (< 20% for single stream)
+# Or use htop for a better view (if available)
+htop
 ```
+
+**Expected CPU usage with hardware acceleration:**
+
+| Operation | Software (CPU) | Hardware (MPP/RGA) |
+|-----------|---------------|-------------------|
+| H.264 Decode 1080p | 300-400% (3-4 cores) | < 20% (mostly overhead) |
+| H.265 Encode 1080p | 400%+ (all cores) | < 30% |
+| Scaling 1080p→720p | 80-100% | < 10% |
+
+**If CPU usage is high (> 100% for single stream):**
+- Hardware acceleration may not be working
+- Check FFmpeg output for error messages
+- Verify hardware devices exist (see troubleshooting below)
+
+**Memory usage:**
+- FFmpeg itself: 20-50 MB
+- Per stream buffer: 10-30 MB
+- Total for single 1080p stream: < 100 MB
 
 ---
 
@@ -489,20 +716,32 @@ top -d 1
 ERROR: rockchip_mpp not found using pkg-config
 ```
 
+**Root cause:** FFmpeg's configure script uses pkg-config to find MPP, but pkg-config isn't looking in the right place (the sysroot).
+
 **Solution:**
 ```bash
-# Verify pkg-config setup
+# 1. Verify environment is loaded
 echo $PKG_CONFIG_PATH
-# Should be: .../sysroot/usr/lib/pkgconfig
+# Should output: .../sysroot/usr/lib/pkgconfig
 
-# Test manually
+# 2. Test pkg-config manually
 pkg-config --exists rockchip_mpp && echo "Found" || echo "Not found"
 
-# If not found, check sysroot
+# 3. If not found, check sysroot has the .pc file
 ls $STAGING/usr/lib/pkgconfig/rockchip_mpp.pc
 
-# If missing, MPP wasn't built - see MPP Status guide
+# 4. If file exists but pkg-config can't find it, reload environment
+source ./ffmpeg-rockchip-cross-compile-env.sh
+
+# 5. If file doesn't exist, MPP wasn't built - rebuild SDK
+cd $SDK_ROOT
+./build.sh
 ```
+
+**Understanding pkg-config:**
+- `.pc` files contain library metadata (version, include paths, link flags)
+- `PKG_CONFIG_PATH` tells pkg-config where to find `.pc` files
+- `PKG_CONFIG_SYSROOT_DIR` prepends sysroot path to all paths in `.pc` files
 
 ---
 
@@ -533,44 +772,114 @@ ls $STAGING/usr/lib/librga.so
 ```
 undefined reference to `mpp_create'
 undefined reference to `imresize'
+/usr/bin/ld: cannot find -lrockchip_mpp
 ```
+
+**Root cause:** The linker can't find MPP/RGA libraries in the sysroot, even though configure succeeded.
 
 **Solution:**
 ```bash
-# Check that libraries are in sysroot
+# 1. Verify libraries exist in sysroot
 ls -l $STAGING/usr/lib/librockchip_mpp.so
 ls -l $STAGING/usr/lib/librga.so
 
-# Verify pkg-config returns correct flags
+# 2. Check if pkg-config returns correct linker flags
 pkg-config --libs rockchip_mpp
-pkg-config --libs librga
+# Should output: -lrockchip_mpp -lpthread
 
-# Reconfigure with explicit library paths
+pkg-config --libs librga
+# Should output: -lrga
+
+# 3. If libraries are missing, rebuild SDK
+cd $SDK_ROOT
+./build.sh
+
+# 4. If libraries exist but linker can't find them, reconfigure with explicit paths
 ./configure \
-  ... \
+  --prefix=$FFMPEG_PREFIX \
+  --enable-cross-compile \
+  --cross-prefix=${CROSS_PREFIX} \
+  --arch=aarch64 \
+  --target-os=linux \
+  --sysroot=$STAGING \
   --extra-ldflags="-L$STAGING/usr/lib" \
-  --extra-cflags="-I$STAGING/usr/include"
+  --extra-cflags="-I$STAGING/usr/include" \
+  --enable-gpl \
+  --enable-version3 \
+  --enable-libdrm \
+  --enable-rkmpp \
+  --enable-rkrga
 ```
+
+**Understanding linker flags:**
+- `-L<path>` adds a directory to library search path
+- `-l<name>` links against lib<name>.so (e.g., `-lrga` → `librga.so`)
+- Sysroot should automatically add `-L$STAGING/usr/lib`, but explicit flags ensure it
 
 ---
 
-### Issue 4: Runtime Error on Device
+### Issue 4: Runtime Error on Device - Library Not Found
 
 **Symptom:**
 ```
-error while loading shared libraries: librockchip_mpp.so.0: cannot open shared object file
+ffmpeg: error while loading shared libraries: librockchip_mpp.so.0: cannot open shared object file: No such file or directory
 ```
+
+**Root cause:** The FFmpeg binary was compiled successfully, but the device doesn't have the required MPP/RGA libraries in its rootfs.
 
 **Solution:**
-```bash
-# Check if MPP library is on device
-ssh root@192.168.1.100 "ls -l /usr/lib/librockchip_mpp.so*"
 
-# If missing, MPP wasn't included in firmware
-# You need to rebuild SDK firmware or manually copy:
-scp $STAGING/usr/lib/librockchip_mpp.so.0 root@192.168.1.100:/usr/lib/
-ssh root@192.168.1.100 "ldconfig"
+**Option A: Check if libraries are already on device**
+```bash
+# Connect to device
+ssh root@$DEVICE_IP
+
+# Check for MPP
+ls -l /usr/lib/librockchip_mpp.so*
+# Should show: librockchip_mpp.so.0, librockchip_mpp.so.1, etc.
+
+# Check for RGA
+ls -l /usr/lib/librga.so*
+
+# If missing, check alternative locations
+find /usr -name "librockchip_mpp.so*" 2>/dev/null
+find /usr -name "librga.so*" 2>/dev/null
 ```
+
+**Option B: Update device rootfs (recommended)**
+```bash
+# On your development machine, rebuild and flash firmware
+cd $SDK_ROOT
+./build.sh
+
+# Flash to device (method depends on your setup)
+# - SD card image: write to SD card
+# - USB/Rockusb: use rkdeveloptool or upgrade_tool
+# - Network: use custom OTA update mechanism
+```
+
+**Option C: Manually copy libraries (temporary solution)**
+```bash
+# From development machine, copy libraries to device
+scp $STAGING/usr/lib/librockchip_mpp.so.0 root@$DEVICE_IP:/usr/lib/
+scp $STAGING/usr/lib/librga.so.2.1.0 root@$DEVICE_IP:/usr/lib/
+
+# On device, create symlinks and update cache
+ssh root@$DEVICE_IP
+cd /usr/lib
+ln -sf librockchip_mpp.so.0 librockchip_mpp.so
+ln -sf librga.so.2.1.0 librga.so.2
+ln -sf librga.so.2 librga.so
+ldconfig
+
+# Verify FFmpeg can now find libraries
+ldd /usr/local/bin/ffmpeg | grep -E "mpp|rga"
+```
+
+**Why Option C is not ideal:**
+- Manual changes may be overwritten during firmware updates
+- Doesn't address potential version mismatches
+- Error-prone (easy to forget a symlink)
 
 ---
 
@@ -581,26 +890,83 @@ ssh root@192.168.1.100 "ldconfig"
 Segmentation fault (core dumped)
 ```
 
-**Possible causes:**
-1. **MPP version mismatch** - FFmpeg compiled against different MPP version
-2. **Missing device files** - `/dev/mpp_service` not available
-3. **Insufficient permissions** - Need root or video group
+**Possible causes and solutions:**
 
-**Solution:**
+**Cause 1: MPP Version Mismatch**
+
+The FFmpeg binary was compiled against a different MPP version than what's on the device.
+
 ```bash
-# Check MPP device
-ls -l /dev/mpp_service
-# Should exist and be readable
+# On device, check installed MPP version
+grep -r "MPP_VERSION" /usr/include/rockchip/ 2>/dev/null || \
+  echo "MPP headers not on device"
 
-# Check MPP version on device
-grep MPP_VERSION /usr/include/rockchip/rk_mpi.h
-
-# Compare with sysroot version
+# On development machine, check compiled version
 grep MPP_VERSION $STAGING/usr/include/rockchip/rk_mpi.h
 
-# If versions don't match, rebuild SDK firmware
+# If versions don't match, rebuild SDK firmware to ensure consistency
 cd $SDK_ROOT
 ./build.sh
+```
+
+**Cause 2: Missing Hardware Device Files**
+
+MPP requires `/dev/mpp_service` device node to communicate with the kernel driver.
+
+```bash
+# On device, check for MPP device
+ls -l /dev/mpp_service
+# Should show: crw-rw---- 1 root video 241, 0 ...
+
+# If missing, check if kernel module is loaded
+lsmod | grep mpp
+# Should show: mpp_service, rockchip_mpp, or similar
+
+# If module not loaded, try loading it
+modprobe rockchip_mpp
+# or
+modprobe mpp_service
+
+# If module doesn't exist, kernel wasn't built with MPP support
+# Check kernel config: CONFIG_ROCKCHIP_MPP_SERVICE=y
+```
+
+**Cause 3: Insufficient Permissions**
+
+User doesn't have permission to access `/dev/mpp_service`.
+
+```bash
+# Check device permissions
+ls -l /dev/mpp_service
+# Should be readable/writable by 'video' group
+
+# Add user to video group (if not root)
+usermod -a -G video your_username
+
+# Or temporarily change device permissions (not recommended for production)
+chmod 666 /dev/mpp_service
+
+# Or run as root
+sudo ffmpeg ...
+```
+
+**Cause 4: Memory Issues**
+
+Device ran out of memory or there's memory corruption.
+
+```bash
+# Check available memory
+free -h
+
+# Check kernel log for OOM (out of memory) or MPP errors
+dmesg | tail -50
+dmesg | grep -i mpp
+dmesg | grep -i "out of memory"
+
+# Try reducing buffer sizes
+ffmpeg -c:v h264_rkmpp \
+  -rkmpp_buffer_size 20000000 \  # Reduce MPP buffer (default: 30MB)
+  -i input.mp4 ...
 ```
 
 ---
