@@ -17,15 +17,18 @@ Comprehensive documentation for Rockchip RV1126B-P development board.
 - **[Cross-Compilation Guide](./guides/cross-compilation-guide.md)** - Using SDK toolchain for custom builds
 - **[Buildroot Integration](./guides/buildroot-integration.md)** - Integrating custom packages into buildroot
 
-#### FFmpeg & MPP Hardware Acceleration
-- **[FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)** - FFmpeg with MPP/RGA support
-- **[MPP Version and Build Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md)** - MPP v1.0.11 details and verification
+#### FFmpeg & Hardware Acceleration
+- **[FFmpeg Cross-Compilation Guide](./guides/ffmpeg-rkmpp/ffmpeg-cross-compilation.md)** - Complete cross-compilation walkthrough ⭐
+- **[FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)** - Usage examples and performance
+- **[MPP Version and Build Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md)** - MPP v1.0.11 codec details
+- **[RGA Version and Build Status](./guides/ffmpeg-rkmpp/rga-version-and-status.md)** - RGA v2.1.0 graphics acceleration
 
 ## 🚀 Quick Start
 
 1. **SDK Setup**: See [Building Software with SDK](./guides/building-software-with-sdk.md)
-2. **FFmpeg with Hardware Acceleration**: See [FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)
-3. **MPP Version Info**: See [MPP Version and Build Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md)
+2. **Cross-Compile FFmpeg**: See [FFmpeg Cross-Compilation Guide](./guides/ffmpeg-rkmpp/ffmpeg-cross-compilation.md) ⭐
+3. **Hardware Acceleration**: See [FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)
+4. **MPP & RGA Details**: See [MPP Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md) and [RGA Status](./guides/ffmpeg-rkmpp/rga-version-and-status.md)
 
 ## 📖 Related Resources
 
