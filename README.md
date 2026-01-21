@@ -14,14 +14,18 @@ Comprehensive documentation for Rockchip RV1126B-P development board.
 
 ### Software Development Guides
 - **[Building Software with SDK](./guides/building-software-with-sdk.md)** - Complete guide for SDK-based development
-- **[FFmpeg Hardware Acceleration](./guides/ffmpeg-hardware-acceleration.md)** - FFmpeg with MPP/RGA support
 - **[Cross-Compilation Guide](./guides/cross-compilation-guide.md)** - Using SDK toolchain for custom builds
 - **[Buildroot Integration](./guides/buildroot-integration.md)** - Integrating custom packages into buildroot
+
+#### FFmpeg & MPP Hardware Acceleration
+- **[FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)** - FFmpeg with MPP/RGA support
+- **[MPP Version and Build Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md)** - MPP v1.0.11 details and verification
 
 ## 🚀 Quick Start
 
 1. **SDK Setup**: See [Building Software with SDK](./guides/building-software-with-sdk.md)
-2. **FFmpeg with Hardware Acceleration**: See [FFmpeg Hardware Acceleration](./guides/ffmpeg-hardware-acceleration.md)
+2. **FFmpeg with Hardware Acceleration**: See [FFmpeg Hardware Acceleration](./guides/ffmpeg-rkmpp/ffmpeg-hardware-acceleration.md)
+3. **MPP Version Info**: See [MPP Version and Build Status](./guides/ffmpeg-rkmpp/mpp-version-and-status.md)
 
 ## 📖 Related Resources
 
