@@ -30,6 +30,16 @@ This comprehensive guide covers building, flashing, testing, and customizing the
 - VLC or ffplay for RTSP testing
 - Web browser for web interface testing
 
+### Host OS compatibility
+
+| Host OS | Support | Notes |
+|---|---|---|
+| **Ubuntu 22.04 / 24.04** | ✅ Recommended | Native Linux — best performance, no caveats |
+| **Mac (Docker Desktop)** | ⚠️ Works with caveats | Volume mounts are significantly slower; root-owned `binary/` chroot files on a Mac-mounted volume may fail to clean up — use `docker exec` to `rm -rf` from inside the container |
+| **Windows (Docker Desktop + WSL2)** | ⚠️ Works with caveats | Keep repos inside the WSL2 filesystem (`~/...`), **not** under `/mnt/c/...` — Windows-mounted volumes have severe performance and ownership issues with root-owned chroot files |
+
+> **Recommendation:** Use a native **Ubuntu Linux** host. The build creates root-owned chroot directories, mounts `binfmt_misc`, and runs privileged containers.
+
 ### Initial Setup
 ```bash
 # Clone or extract the SDK
