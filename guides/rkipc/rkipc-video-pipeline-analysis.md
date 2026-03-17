@@ -4,7 +4,7 @@
 
 This document analyzes how RKIPC initializes the video pipeline on the RV1126B-P platform to enable direct camera access for custom development with FFmpeg-Rockchip.
 
-**Target Hardware**: RV1126B-P EVB v1.0 with IMX415 4K camera sensor  
+**Target Hardware**: Fanconn RV1126B-P camera v1.0 with IMX415 4K camera sensor  
 **RKIPC Version**: rockchip_rv1126bp_ipc_64_evb1_v10_defconfig  
 **Source Files Analyzed**:
 - `/app/rkipc/src/rv1126b_ipc/video/video.c` (3258 lines)
