@@ -1,18 +1,31 @@
-# Complete Build and Flash Guide for RV1126B-P IPC
+# Complete Build and Flash Guide for RV1126B-P
 
-This comprehensive guide covers building, flashing, testing, and customizing the RV1126BP IPC firmware with RTSP streaming capabilities.
+This guide covers two firmware variants for the RV1126B-P:
+
+| Variant | Rootfs | Use case |
+|---|---|---|
+| **IPC** | Buildroot | RTSP streaming, web UI, RKIPC production firmware |
+| **Debian CV Image** | Debian 12 Bookworm (headless) | Computer Vision development — Python/OpenCV/GStreamer/FFmpeg-rkmpp/RKNN |
 
 ---
 
 ## 📋 Table of Contents
 
+**IPC Firmware (Buildroot)**
 1. [Prerequisites](#prerequisites)
 2. [Configuration Overview](#configuration-overview)
 3. [Building Firmware](#building-firmware)
 4. [Flashing Firmware](#flashing-firmware)
 5. [Testing IPC Features](#testing-ipc-features)
 6. [Configuration & Customization](#configuration--customization)
-7. [Troubleshooting](#troubleshooting)
+
+**Debian CV Image (Debian 12 Bookworm)**
+7. [Debian CV Image](#debian-cv-image)
+   - [Building the Debian CV Image](#building-the-debian-cv-image)
+   - [Flashing the Debian CV Image](#flashing-the-debian-cv-image)
+   - [CV Stack Validation](#cv-stack-validation)
+
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -537,6 +550,215 @@ chmod +x /etc/init.d/S99rkipc
 
 ---
 
+## Debian CV Image
+
+The Debian CV Image replaces the SDK's default desktop rootfs (Wayland/Weston/Openbox) with a **minimal headless Debian 12 Bookworm server** image, shipping the full Rockchip HW acceleration stack plus a ready-to-use CV development environment.
+
+> **Note:** This variant has **no RKIPC, no RTSP, and no web interface.** It is a headless server image for Computer Vision development and deployment.
+
+| Layer | Components |
+|---|---|
+| **Rockchip HW** | MPP (H.264/H.265/VP8 HW codec), RGA2 (2D accel), GStreamer-Rockchip (`gst-rkmpp`), GStreamer 1.22, V4L2, RKAIQ (ISP), libdrm, RKNPU2 |
+| **CV packages** | Python 3.11, OpenCV 4.6 (`python3-opencv`), NumPy, Pillow, PyGObject + GStreamer Python bindings |
+| **RKNN** | `rknn-toolkit-lite2` — Python API for the 3-TOPs NPU |
+| **FFmpeg** | `ffmpeg-rockchip` with `h264_rkmpp` / `hevc_rkmpp` HW encode/decode |
+| **Dev tools** | `build-essential`, `cmake`, `pkg-config`, GStreamer dev headers, `v4l-utils`, `i2c-tools`, `git`, `curl`, `wget` |
+
+---
+
+### Prerequisites for Debian CV Image
+
+**Docker image v1.1 or later** is required. v1.1 adds the Debian build dependencies:
+`qemu-user-static`, `binfmt-support`, `live-build`, `debootstrap`, `e2fsprogs`.
+
+All repos must live under the same workspace root:
+
+```
+~/RV1126B-P/                  ← workspace root (mounted as /workspace-host/ inside the container)
+  RV1126B-P-CV-Image/
+  RV1126B-P-SDK/
+  RV1126B-P-SDK-Docker/
+```
+
+If your Docker image is still v1.0, rebuild first:
+
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK-Docker
+docker compose build
+```
+
+---
+
+### Building the Debian CV Image
+
+#### Step 1: Run the build (Rest of World — default)
+
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK-Docker
+docker compose run --rm rv1126b-builder bash -c \
+  "cd /workspace-host/RV1126B-P-CV-Image && bash scripts/build-cv-image.sh"
+```
+
+#### Mainland China — faster mirrors
+
+Set `REGION=china` to switch all apt mirrors to `mirrors.ustc.edu.cn`:
+
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK-Docker
+docker compose run --rm rv1126b-builder bash -c \
+  "cd /workspace-host/RV1126B-P-CV-Image && REGION=china bash scripts/build-cv-image.sh"
+```
+
+| `REGION` | Mirror | When to use |
+|---|---|---|
+| *(unset)* or `row` | `deb.debian.org` | All countries except mainland China |
+| `china` | `mirrors.ustc.edu.cn` | Mainland China datacentres |
+
+**Build time:** ~30–60 minutes first run (live-build downloads base tarball + chroot installs packages).  
+Subsequent runs skip the live-build stage if the base tarball is already cached.
+
+#### Step 2: Verify build output
+
+```bash
+ls -lh ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/debian/linaro-rootfs.img
+# Expected: ~2.4G
+```
+
+#### Force a full rebuild (refreshing the base tarball)
+
+```bash
+rm ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/debian/linaro-bookworm-alip-*.tar.gz
+# then re-run build-cv-image.sh
+```
+
+---
+
+### Flashing the Debian CV Image
+
+The Debian CV Image replaces only the **rootfs** partition. Kernel and U-Boot are shared with the IPC build.
+
+#### Option A: Flash rootfs partition only (recommended)
+
+Use this if the board already has any RV1126B firmware (kernel + U-Boot already present).
+
+1. Put the board in **Loader mode** (see [Step 1: Put Board in Loader Mode](#step-1-put-board-in-loader-mode))
+2. Flash just the rootfs partition:
+
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0
+sudo upgrade_tool pl rootfs debian/linaro-rootfs.img
+sudo upgrade_tool rd    # reboot device
+```
+
+Expected output:
+```
+Loading firmware...
+Partition command success
+Reset Device Success
+```
+
+#### Option B: Full firmware flash (fresh board)
+
+Build a complete `update.img` that includes kernel, U-Boot, and the Debian rootfs, then flash all partitions.
+
+```bash
+# 1. Build the Debian rootfs
+cd ~/RV1126B-P/RV1126B-P-SDK-Docker
+docker compose run --rm rv1126b-builder bash -c \
+  "cd /workspace-host/RV1126B-P-CV-Image && bash scripts/build-cv-image.sh"
+
+# 2. Pack into update.img (uses the previously built kernel + U-Boot)
+docker compose run --rm rv1126b-builder bash -c \
+  "cd /workspace/rv1126b_linux6.1_sdk_v1.1.0 && \
+   ./build.sh rockchip_rv1126bp_cv_64_debian_defconfig && \
+   ./build.sh updateimg"
+
+# 3. Flash all partitions
+cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0
+sudo ./rkflash.sh all
+```
+
+#### Accessing the board after flash
+
+| Method | Details |
+|---|---|
+| **SSH** | `ssh root@<BOARD_IP>` — password: `rockchip` |
+| **Serial** | `ttyS2` at `1500000` baud |
+
+---
+
+### CV Stack Validation
+
+The `flash-and-test.sh` script runs 14 automated tests over SSH to verify the full CV stack:
+
+```bash
+cd ~/RV1126B-P/RV1126B-P-CV-Image
+
+# Default IP 192.168.1.95, or pass IP as argument:
+bash scripts/flash-and-test.sh <BOARD_IP>
+```
+
+Tests cover:
+- Python 3 + PyGObject / GStreamer Python bindings
+- GStreamer-Rockchip — `mpph264enc` plugin and `gst-launch-1.0`
+- OpenCV 4.6 import + GStreamer backend
+- NumPy, Pillow
+- FFmpeg-rkmpp HW codecs (`h264_rkmpp`, `hevc_rkmpp`)
+- RKNN Lite2 import
+- NPU device node (`/dev/rknpu`)
+- MPP device node (`/dev/mpp_service`)
+- V4L2 tools
+
+Expected result:
+```
+[✓] All tests passed on 192.168.1.95
+```
+
+#### CV stack paths (on device)
+
+| Component | Path |
+|---|---|
+| FFmpeg (rkmpp) | `/usr/local/ffmpeg-rv1126b/bin/ffmpeg-rv1126b` |
+| MPP device | `/dev/mpp_service` |
+| NPU device | `/dev/rknpu` or `/dev/rknpu0` |
+| V4L2 devices | `/dev/video*` |
+
+---
+
+### Troubleshooting Debian CV Build
+
+#### Build fails: `bash: unexpected EOF`
+
+The `binfmt_misc` qemu handler failed to register. Ensure the container runs with `--privileged` (already set in `docker-compose.yml`). Check:
+
+```bash
+sudo docker compose run --rm rv1126b-builder bash -c \
+  "cat /proc/sys/fs/binfmt_misc/qemu-aarch64"
+```
+
+If missing, rebuild the Docker image (`docker compose build`) and retry.
+
+#### apt-get errors or mirror timeouts during build
+
+If `deb.debian.org` is timing out, try the USTC mirror with `REGION=china`.  
+If `mirrors.ustc.edu.cn` is slow from outside China, you are using the wrong region — use the default `REGION=row`.
+
+Clean the cached base tarball to force a fresh download:
+
+```bash
+rm -f ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/debian/linaro-bookworm-alip-*.tar.gz
+```
+
+#### FFmpeg `libmvec.so.1` error in build log
+
+This is a cosmetic warning printed when the build script checks the installed aarch64 binary inside the chroot on an x86_64 host. The binary is correctly installed at `/usr/local/ffmpeg-rv1126b/bin/` — this warning can be ignored.
+
+#### `upgrade_tool pl rootfs` reports wrong size
+
+Partition flash fails if the image is larger than the partition defined in the parameter file. Use Option B (full flash with `update.img`) which repacks the partition layout.
+
+---
+
 ## Troubleshooting
 
 ### RTSP Stream Not Accessible
@@ -665,21 +887,23 @@ chmod +x /etc/init.d/S99rkipc
 
 ### One-Liner Commands
 
-**Full rebuild in Docker**:
+#### IPC Firmware (Buildroot)
+
+**Full IPC rebuild in Docker**:
 ```bash
 cd ~/RV1126B-P/RV1126B-P-SDK-Docker && \
-docker compose exec rv1126b-builder bash -c \
+docker compose run --rm rv1126b-builder bash -c \
 "cd rv1126b_linux6.1_sdk_v1.1.0 && ./build.sh cleanall && ./build.sh all"
 ```
 
 **Quick buildroot rebuild**:
 ```bash
 cd ~/RV1126B-P/RV1126B-P-SDK-Docker && \
-docker compose exec rv1126b-builder bash -c \
+docker compose run --rm rv1126b-builder bash -c \
 "cd rv1126b_linux6.1_sdk_v1.1.0 && ./build.sh buildroot && ./build.sh updateimg"
 ```
 
-**Flash from host**:
+**Flash IPC firmware**:
 ```bash
 cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0 && \
 sudo ./rkflash.sh all
@@ -695,29 +919,58 @@ ffplay -rtsp_transport tcp rtsp://<BOARD_IP>:554/live/0
 adb shell "killall rkipc && sleep 1 && /usr/bin/RkLunch.sh &"
 ```
 
+#### Debian CV Image
+
+**Build CV image**:
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK-Docker && \
+docker compose run --rm rv1126b-builder bash -c \
+"cd /workspace-host/RV1126B-P-CV-Image && bash scripts/build-cv-image.sh"
+```
+
+**Flash CV rootfs only**:
+```bash
+cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0 && \
+sudo upgrade_tool pl rootfs debian/linaro-rootfs.img && sudo upgrade_tool rd
+```
+
+**Validate CV stack**:
+```bash
+cd ~/RV1126B-P/RV1126B-P-CV-Image && bash scripts/flash-and-test.sh <BOARD_IP>
+```
+
+**Force re-download base tarball** (stale or broken build):
+```bash
+rm -f ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/debian/linaro-bookworm-alip-*.tar.gz
+```
+
 ### Important Paths
 
 | Component | Path |
 |-----------|------|
 | SDK Root | `~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/` |
 | Docker Compose | `~/RV1126B-P/RV1126B-P-SDK-Docker/` |
-| Firmware Output | `rockdev/update.img` |
+| IPC Firmware Output | `rockdev/update.img` |
 | Buildroot Config | `buildroot/configs/rockchip_rv1126b_ipc_defconfig` |
 | IPC Overlay | `buildroot/board/rockchip/rv1126b/fs-overlay-ipc/` |
-| Startup Script | `/etc/init.d/S99rkipc` (on device) |
+| **Debian CV rootfs** | `debian/linaro-rootfs.img` |
+| **CV-Image repo** | `~/RV1126B-P/RV1126B-P-CV-Image/` |
+| Startup Script (IPC) | `/etc/init.d/S99rkipc` (on device) |
 | RKIPC Config | `/userdata/rkipc.ini` (on device) |
 | Web Files | `/usr/www/` (on device) |
 | RKIPC Binary | `/usr/bin/rkipc` (on device) |
+| FFmpeg (CV image) | `/usr/local/ffmpeg-rv1126b/bin/ffmpeg-rv1126b` (on device) |
 
 ### Default Credentials & URLs
 
-| Service | URL/Address | Credentials |
-|---------|-------------|-------------|
-| RTSP Main Stream | `rtsp://<BOARD_IP>:554/live/0` | None |
-| RTSP Sub Stream | `rtsp://<BOARD_IP>:554/live/1` | None |
-| Web Interface | `http://<BOARD_IP>` | admin / admin |
-| SSH | `<BOARD_IP>:22` | root / rockchip |
-| ADB (network) | `<BOARD_IP>:5555` | None |
+| Firmware | Service | URL/Address | Credentials |
+|---|---------|-------------|-------------|
+| **IPC** | RTSP Main Stream | `rtsp://<BOARD_IP>:554/live/0` | None |
+| **IPC** | RTSP Sub Stream | `rtsp://<BOARD_IP>:554/live/1` | None |
+| **IPC** | Web Interface | `http://<BOARD_IP>` | admin / admin |
+| **IPC** | SSH | `<BOARD_IP>:22` | root / rockchip |
+| **IPC** | ADB (network) | `<BOARD_IP>:5555` | None |
+| **Debian CV** | SSH | `<BOARD_IP>:22` | root / rockchip |
 
 ---
 
@@ -730,6 +983,8 @@ adb shell "killall rkipc && sleep 1 && /usr/bin/RkLunch.sh &"
 
 ---
 
-**Last Updated**: January 23, 2026  
-**Tested Configuration**: rockchip_rv1126bp_ipc_64_evb1_v10_defconfig  
+**Last Updated**: March 18, 2026  
+**Tested Configurations**:
+- IPC: `rockchip_rv1126bp_ipc_64_evb1_v10_defconfig`
+- Debian CV: `rockchip_rv1126bp_cv_64_debian_defconfig` — `linaro-rootfs.img` 2.4 G  
 **Tested Hardware**: RV1126BP EVB v1.0 with IMX415 camera sensor
