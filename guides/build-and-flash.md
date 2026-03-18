@@ -20,6 +20,7 @@ This guide covers two firmware variants for the RV1126B-P:
 6. [Configuration & Customization](#configuration--customization)
 
 **Debian CV Image (Debian 12 Bookworm)**
+
 7. [Debian CV Image](#debian-cv-image)
    - [Building the Debian CV Image](#building-the-debian-cv-image)
    - [Flashing the Debian CV Image](#flashing-the-debian-cv-image)
