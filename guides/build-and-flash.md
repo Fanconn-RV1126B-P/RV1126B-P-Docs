@@ -155,6 +155,7 @@ The firmware is now built at `~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.
 
 ## Flashing Firmware
 
+<a id="entering-loader-mode"></a>
 ### Step 1: Put Board in Loader Mode
 
 The board must be in **Loader mode** before `rkdeveloptool` can
@@ -211,11 +212,17 @@ After any software method, verify with `lsusb | grep 2207` before proceeding.
 
 ```bash
 lsusb | grep 2207
+# Expected: ID 2207:110f Fuzhou Rockchip Electronics Company USB download gadget
+
+sudo rkdeveloptool list
+# Expected: DevNo=1 Vid=0x2207,Pid=0x110f,LocationID=302    Loader
 ```
 
 Expected output:
 ```
-Bus 003 Device 002: ID 2207:110f Fuzhou Rockchip Electronics Company USB download gadget
+Bus 003 Device 033: ID 2207:110f Fuzhou Rockchip Electronics Company USB download gadget
+
+DevNo=1 Vid=0x2207,Pid=0x110f,LocationID=302    Loader
 ```
 
 ### Step 3: Flash Firmware
