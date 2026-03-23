@@ -40,7 +40,7 @@ This guide covers two firmware variants for the RV1126B-P:
 
 ### Software Requirements
 - Docker and Docker Compose installed
-- upgrade_tool v2.44 (included in SDK)
+- rkdeveloptool (included in SDK)
 - VLC or ffplay for RTSP testing
 - Web browser for web interface testing
 
@@ -157,11 +157,55 @@ The firmware is now built at `~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.
 
 ### Step 1: Put Board in Loader Mode
 
+The board must be in **Loader mode** before `rkdeveloptool` can
+flash it. There are two ways to get there:
+
+#### Method A: Physical button (if your board has one)
+
 1. **Power off** the board
 2. **Hold** the recovery/maskrom button
 3. **Connect** USB Type-C cable to PC
 4. **Power on** the board (or press reset)
 5. **Release** the button after 2-3 seconds
+
+#### Method B: Software reboot into loader (no button required)
+
+If the board is already running (any Rockchip Linux firmware — IPC or Debian CV),
+you can reboot it into loader mode over USB or SSH without touching any button.
+
+**Option 1 — via SSH (board has network access) ✅ most reliable:**
+
+Connect the USB Type-C cable first, then:
+
+```bash
+ssh root@<BOARD_IP> "reboot loader"
+# Password: rockchip (both IPC and Debian CV)
+```
+
+The `reboot loader` command tells the running kernel to switch the USB port into
+rockusb gadget mode and reboot into the bootloader download mode. The cable must
+already be connected so the host sees the device appear.
+
+Wait ~3 seconds, then verify:
+```bash
+lsusb | grep 2207
+# Expected: ID 2207:110f  (loader mode)
+```
+
+**Option 2 — via ADB (IPC firmware only):**
+
+```bash
+adb shell reboot loader
+```
+
+**Option 3 — via `rkdeveloptool reboot-rockusb` (board already in rockusb mode):**
+
+> ⚠️ This command does **not** put a normally-booted board into loader mode.
+> It sends a *reboot* command to a device that is **already** enumerated as a
+> rockusb device (i.e. already in loader/download mode). Use Option 1 or 2 to
+> get there first.
+
+After any software method, verify with `lsusb | grep 2207` before proceeding.
 
 ### Step 2: Verify Device Detected
 
@@ -642,20 +686,33 @@ The Debian CV Image replaces only the **rootfs** partition. Kernel and U-Boot ar
 
 Use this if the board already has any RV1126B firmware (kernel + U-Boot already present).
 
-1. Put the board in **Loader mode** (see [Step 1: Put Board in Loader Mode](#step-1-put-board-in-loader-mode))
+1. Put the board in **Loader mode** (see [Entering Loader Mode](#entering-loader-mode))
 2. Flash just the rootfs partition:
 
 ```bash
 cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0
-sudo upgrade_tool pl rootfs debian/linaro-rootfs.img
-sudo upgrade_tool rd    # reboot device
+
+# Confirm device is detected
+sudo rkdeveloptool list
+
+# Write rootfs partition and reboot
+sudo rkdeveloptool write-partition rootfs debian/linaro-rootfs.img
+sudo rkdeveloptool reboot
 ```
 
 Expected output:
 ```
-Loading firmware...
-Partition command success
-Reset Device Success
+$ lsusb | grep 2207
+Bus 003 Device 033: ID 2207:110f Fuzhou Rockchip Electronics Company USB download gadget
+
+$ sudo rkdeveloptool list
+DevNo=1 Vid=0x2207,Pid=0x110f,LocationID=302    Loader
+
+$ sudo rkdeveloptool write-partition rootfs debian/linaro-rootfs.img
+Write LBA from file (100%)
+
+$ sudo rkdeveloptool reboot
+Reset Device OK.
 ```
 
 #### Option B: Full firmware flash (fresh board)
@@ -754,9 +811,11 @@ rm -f ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0/debian/linaro-bookwo
 
 This is a cosmetic warning printed when the build script checks the installed aarch64 binary inside the chroot on an x86_64 host. The binary is correctly installed at `/usr/local/ffmpeg-rv1126b/bin/` — this warning can be ignored.
 
-#### `upgrade_tool pl rootfs` reports wrong size
+#### Rootfs partition flash fails (wrong size / overflow)
 
 Partition flash fails if the image is larger than the partition defined in the parameter file. Use Option B (full flash with `update.img`) which repacks the partition layout.
+
+With `rkdeveloptool` you will see `Write LBA failed` or a size mismatch error.
 
 ---
 
@@ -830,7 +889,7 @@ Partition flash fails if the image is larger than the partition defined in the p
 
 ### Flash Fails - Device Not Detected
 
-**Symptoms**: upgrade_tool can't find device
+**Symptoms**: Device not detected by `rkdeveloptool`
 
 **Solutions**:
 1. Verify USB connection:
@@ -840,12 +899,9 @@ Partition flash fails if the image is larger than the partition defined in the p
 
 2. Try different USB port or cable
 
-3. Retry entering loader mode:
-   - Power off completely
-   - Hold recovery button firmly
-   - Connect USB
-   - Power on, wait 3 seconds
-   - Release button
+3. Retry entering loader mode — use whichever method applies:
+   - **Software (board already running):** `ssh root@<BOARD_IP> "reboot loader"` or `adb shell reboot loader`
+   - **Physical button:** power off → hold recovery button → connect USB → power on → release after 3 s
 
 4. Check USB permissions:
    ```bash
@@ -932,7 +988,7 @@ docker compose run --rm rv1126b-builder bash -c \
 **Flash CV rootfs only**:
 ```bash
 cd ~/RV1126B-P/RV1126B-P-SDK/rv1126b_linux6.1_sdk_v1.1.0 && \
-sudo upgrade_tool pl rootfs debian/linaro-rootfs.img && sudo upgrade_tool rd
+sudo rkdeveloptool write-partition rootfs debian/linaro-rootfs.img && sudo rkdeveloptool reboot
 ```
 
 **Validate CV stack**:
