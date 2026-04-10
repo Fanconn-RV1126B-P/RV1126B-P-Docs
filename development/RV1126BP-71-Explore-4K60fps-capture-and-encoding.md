@@ -274,6 +274,37 @@ RKIPC running 4K@30fps H.265 consumes **85% VEPU**. VPU clock is stable at 480 M
 
 **Goal**: Test the full pipeline (sensor → ISP → encoder) with zero-copy DMA-BUF at progressively higher frame rates. This is the primary 4K@60fps feasibility test.
 
+#### 4a — 1080p GStreamer Real-Camera Baseline ✅ COMPLETE (April 11 2026)
+
+Confirmed working pipeline using `05_rtsp_stream.py` (Example RV1126BP-64):
+
+```
+v4l2src device=/dev/video-camera0
+  ! video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1
+  ! mpph264enc bps=4000000 rc-mode=cbr
+  ! h264parse
+  ! rtspclientsink location=rtsp://127.0.0.1:8554/live protocols=tcp
+```
+
+MPP init log confirms encoder at 4 Mbps CBR, 30/1, GOП 30:
+```
+mpp_enc: MPP_ENC_SET_RC_CFG bps 4000000 [3750000 : 4250000] fps [30:30] gop 30
+h264e_api_v2: MPP_ENC_SET_PREP_CFG w:h [1920:1080] stride [1920:1088]
+mpp_enc: mode cbr bps [3750000:4000000:4250000] fps fix [30/1] -> fix [30/1] gop i [30] v [0]
+```
+
+Verified from dev host:
+```
+ffprobe: h264  1920×1080  30/1 fps  rtsp://192.168.1.95:8554/live ✅
+```
+
+**Observations (benign, no impact):**
+- `libv4l2: error getting pixformat: Invalid argument` — the ISP vnode `/dev/video-camera0` is a multiplanar (mplane) capture device; libv4l2's userspace ioctl shim attempts `VIDIOC_G_FMT` on every open, which fails on mplane devices. GStreamer switches to the mplane plugin and proceeds correctly (`Using mplane plugin for capture`).
+- `mpp: unable to create enc vp8 for soc rv1126b unsupported` — MPP scans all available codec types on init; vp8 encode is unsupported on RV1126B, the warning is printed once and ignored.
+- `rga_api version 1.10.5_[4] … deprecated API` — `h264parse` or the internal DRM allocator touches the legacy im2d RGA path; has no effect on encode performance.
+
+#### 4b — 4K Encoder Benchmark (Real Camera DMA-BUF)
+
 **New file**: `RV1126B-P-Camera-Pipeline/examples/03_mpp_encoder_benchmark.c`  
 **New script**: `RV1126B-P-Camera-Pipeline/scripts/benchmark_encoder.sh`
 
